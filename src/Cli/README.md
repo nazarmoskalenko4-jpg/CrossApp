@@ -17,8 +17,8 @@ RID: osx-arm64
 ## Додаткове завдання
 
 ### Self-contained publish
-win-x64: 71 MB  
-osx-arm64: 76 MB
+win-x64: 77 MB  
+osx-arm64: 83 MB
 
 ### JSON
 Запуск програми у форматі JSON:

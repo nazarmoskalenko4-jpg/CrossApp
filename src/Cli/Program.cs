@@ -26,14 +26,19 @@ else
 {
     Console.WriteLine("CrossApp - практикум з крос-платформного програмування");
     Console.WriteLine($"Студент: {info.Student}");
-    Console.WriteLine(new string('-', 52));
-    Console.WriteLine($"OC (OSDescription) : {info.OSDescription}");
-    Console.WriteLine($"OC (Environment)   : {info.EnvironmentOS}");
-    Console.WriteLine($"Архітектура процесу: {info.Architecture}");
-    Console.WriteLine($"Версія .NET (CLR)  : {info.DotNetVersion}");
-    Console.WriteLine($"Runtime            : {info.Runtime}");
-    Console.WriteLine($"Каталог застосунку : {info.BaseDirectory}");
-    Console.WriteLine($"Поточний каталог   : {info.CurrentDirectory}");
-    Console.WriteLine(new string('-', 52));
+    
+    // Форматування у вигляді таблиці
+    Console.WriteLine(new string('-', 95));
+    Console.WriteLine($"| {"Характеристика",-25} | {"Значення",-63} |");
+    Console.WriteLine(new string('-', 95));
+    Console.WriteLine($"| {"OC (OSDescription)",-25} | {info.OSDescription,-63} |");
+    Console.WriteLine($"| {"OC (Environment)",-25} | {info.EnvironmentOS,-63} |");
+    Console.WriteLine($"| {"Архітектура процесу",-25} | {info.Architecture,-63} |");
+    Console.WriteLine($"| {"Версія .NET (CLR)",-25} | {info.DotNetVersion,-63} |");
+    Console.WriteLine($"| {"Runtime",-25} | {info.Runtime,-63} |");
+    Console.WriteLine($"| {"Каталог застосунку",-25} | {info.BaseDirectory,-63} |");
+    Console.WriteLine($"| {"Поточний каталог",-25} | {info.CurrentDirectory,-63} |");
+    Console.WriteLine(new string('-', 95));
+    
     Console.WriteLine($"Предметна область: {info.Domain}");
 }
