@@ -5,26 +5,33 @@
 Сутності: Customer, Product, Order, OrderLine.
 Призначення: оформлення замовлень і підрахунок сум.
 
-## Запуск
+# Запуск
+```
 dotnet build
 dotnet run --project src/Cli
+```
 
-## Середовище
+# Середовище
 .NET SDK 8.0.424
 macOS
 RID: osx-arm64
 
-## Додаткове завдання
+# Додаткове завдання
 
-### Self-contained publish
+# Self-contained publish
 win-x64: 77 MB  
 osx-arm64: 83 MB
 
-### JSON
+# JSON
 Запуск програми у форматі JSON:
+```
 dotnet run --project src/Cli -- --json
+```
 
-### Docker
+# Docker
 Програму було запущено в Linux-контейнері Docker.
 Локальний OSDescription: Darwin 23.2.0 Darwin Kernel Version...
 Docker OSDescription: Debian GNU/Linux 12 (bookworm)
+```
+docker run --rm -v ${PWD}:/src -w /src mcr.microsoft.com/dotnet/sdk:10.0 dotnet run --project src/Cli
+```
