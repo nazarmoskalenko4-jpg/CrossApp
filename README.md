@@ -5,30 +5,55 @@
 Сутності: Customer, Product, Order, OrderLine.
 Призначення: оформлення замовлень і підрахунок сум.
 
-# Запуск
+## Структура Solution
+CrossApp/
+├── src/
+│   ├── Core/      # Спільна логіка (Class Library)
+│   └── Cli/       # Точка входу та вивід (Console App)
+
+### Архітектура каталогу Core
+Домовленість про структуру на весь семестр:
+* Core/Dto/ — record-типи формату даних (DTO).
+* Core/Domain/ — сутності з поведінкою та інваріантами.
+* Core/Storage/ — реалізації сховищ.
+
+## Запуск та збірка
 ```
 dotnet build
-dotnet run --project src/Cli
+dotnet run --project src/Cli 
 ```
 
-# Середовище
-.NET SDK 8.0.424
+### Публікація (Lab 02)
+```
+# Публікація (self-contained, з вбудованим середовищем .NET)
+dotnet publish src/Cli -c Release -r osx-arm64 --self-contained true
+
+# Публікація (framework-dependent, потребує встановленого .NET)
+dotnet publish src/Cli -c Release -r osx-arm64 --self-contained false
+```
+### Порівняння режимів публікації
+| Режим | Розмір publish | Потрібен runtime |
+| :--- | :--- | :--- |
+| osx-arm64 self-contained | ~83 МБ | ні |
+| osx-arm64 framework-dependent | ~172 КБ | так (.NET 10) |
+
+### Середовище
+.NET SDK 10.0
 macOS
 RID: osx-arm64
 
-# Додаткове завдання
-
-# Self-contained publish
-win-x64: 77 MB  
+### Додаткове завдання (Lab 01)
+Self-contained publish (Lab 01)
+win-x64: 77 MB
 osx-arm64: 83 MB
 
-# JSON
+### JSON
 Запуск програми у форматі JSON:
 ```
 dotnet run --project src/Cli -- --json
 ```
 
-# Docker
+### Docker
 Програму було запущено в Linux-контейнері Docker.
 Локальний OSDescription: Darwin 23.2.0 Darwin Kernel Version...
 Docker OSDescription: Debian GNU/Linux 12 (bookworm)
