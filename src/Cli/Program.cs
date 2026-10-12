@@ -1,6 +1,12 @@
-﻿using Core.Dto;
+﻿using Core.Domain;
+using Core.Dto;
 using Core.Import;
 
+Console.OutputEncoding = System.Text.Encoding.UTF8;
+
+// ==========================================
+// ЛАБОРАТОРНА 3: Демонстрація імпорту
+// ==========================================
 string path = args.Length > 0 ? args[0] : Path.Combine("data", "sample.csv");
 
 if (!File.Exists(path))
@@ -9,7 +15,6 @@ if (!File.Exists(path))
     return 1;
 }
 
-// Вибір імпортера за розширенням
 string extension = Path.GetExtension(path).ToLowerInvariant();
 ImportResult result = extension switch
 {
@@ -18,32 +23,71 @@ ImportResult result = extension switch
     _ => throw new NotSupportedException($"Формат файлу '{extension}' не підтримується.")
 };
 
-// Завдання 3: Статистика імпорту
 int accepted = result.Orders.Count + result.Customers.Count;
 int total = accepted + result.Errors.Count;
-double errorRate = total == 0 ? 0 : (double)result.Errors.Count / total * 100;
-Console.WriteLine($"Статистика: усього {total} | прийнято {accepted} | пропущено {result.Errors.Count} ({errorRate:F1}% помилок)\n");
+Console.WriteLine($"--- ІМПОРТ (Лаб 3) ---");
+Console.WriteLine($"Статистика: усього {total} | прийнято {accepted} | помилок {result.Errors.Count}");
+Console.WriteLine();
 
-// Вимоги DoD: виведення перших записів
-Console.WriteLine("--- ПЕРШІ ЗАМОВЛЕННЯ ---");
-foreach (OrderDto order in result.Orders.Take(5))
+// --- Додаткове завдання 1 ---
+Console.WriteLine("--- ДОДАТКОВЕ ЗАВДАННЯ 1: Фільтрація доменними інваріантами ---");
+var (validOrders, domainErrors) = DomainImporter.ProcessImport(result);
+Console.WriteLine($"Успішно створено доменних об'єктів: {validOrders.Count}");
+if (domainErrors.Count > 0)
 {
-    Console.WriteLine($" {order.Id,-6} {order.Name,-20} {order.Price,8:F2}  {order.Note}");
-}
-
-Console.WriteLine("\n--- ПЕРШІ КЛІЄНТИ ---");
-foreach (CustomerDto customer in result.Customers.Take(5))
-{
-    Console.WriteLine($" {customer.Id,-6} {customer.Name,-20} {customer.Phone}");
-}
-
-// Перелік пропущених рядків з номерами
-if (result.Errors.Count > 0)
-{
-    Console.WriteLine($"\nПропущено рядків: {result.Errors.Count}");
-    foreach (string error in result.Errors)
+    Console.WriteLine("Помилки інваріантів під час мапінгу:");
+    foreach (var err in domainErrors)
     {
-        Console.WriteLine($" ! {error}");
+        Console.WriteLine($"  {err}");
+    }
+}
+Console.WriteLine();
+
+// ==========================================
+// ЛАБОРАТОРНА 4: Демонстрація доменної моделі
+// ==========================================
+Console.WriteLine("--- ДОМЕННА МОДЕЛЬ (Лаб 4) ---");
+Console.WriteLine("\n Сценарій 1: Успіх ");
+Order order = Order.Create("ORD-001", "Клієнт з магазину");
+Console.WriteLine(order);
+
+order.AddLine("Ноутбук", 25000m, 1);
+order.AddLine("Миша", 500m, 2);
+Console.WriteLine(order);
+
+order.Confirm();
+Console.WriteLine(order);
+Console.WriteLine();
+
+
+Console.WriteLine("\n Сценарій 2: Порушення інваріантів ");
+TryDo("Створення рядка з від'ємною ціною", () => OrderLine.Create("Клавіатура", -100m, 1));
+TryDo("Створення рядка з порожньою назвою", () => OrderLine.Create("", 100m, 1));
+TryDo("Створення замовлення без ID", () => Order.Create(""));
+TryDo("Підтвердження порожнього замовлення", () => 
+{
+    var emptyOrder = Order.Create("ORD-002");
+    emptyOrder.Confirm();
+});
+TryDo("Додавання рядка до підтвердженого замовлення", () => 
+{
+    order.AddLine("Килимок", 300m, 1); // order - це підтверджене замовлення зі сценарію 1
+});
+
+Console.WriteLine("\nСтан об'єкта після спроб його зламати:");
+Console.WriteLine(order); // Має залишитись "Сума: 26000.00"
+
+// Локальна функція для обробки помилок
+static void TryDo(string title, Action action)
+{
+    try
+    {
+        action();
+        Console.WriteLine($"[!] {title}: виняток НЕ спрацював — інваріант відсутній!");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[x] {title}: {ex.GetType().Name} - {ex.Message}");
     }
 }
 
