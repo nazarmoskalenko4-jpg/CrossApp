@@ -1,94 +1,111 @@
-﻿using Core.Domain;
-using Core.Dto;
-using Core.Import;
+﻿using Cli;
+using Core;
+using Core.Abstractions;
+using Core.Domain;
+using Core.Services;
+using Core.Storage;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-// ==========================================
-// ЛАБОРАТОРНА 3: Демонстрація імпорту
-// ==========================================
-string path = args.Length > 0 ? args[0] : Path.Combine("data", "sample.csv");
+// =========================================================================
+// Крок 5. Composition Root у Cli — єдине місце з конкретними класами
+// =========================================================================
+bool useFile = args.Contains("--file");
+bool useFactory = args.Contains("--factory");
+bool useCache = args.Contains("--cache");
 
-if (!File.Exists(path))
+string dataPath = Path.Combine(AppContext.BaseDirectory, "data", "orders.json");
+
+// Базовий варіант за методичкою (тернарний оператор прямо в Program.cs)
+// Або виклик StoreFactory.Create(args, dataPath) для Додаткового завдання №3
+IOrderStore store = useFactory
+    ? StoreFactory.Create(args, dataPath)
+    : useFile
+        ? new FileOrderStore(dataPath)
+        : new InMemoryOrderStore(SampleData.Orders());
+
+// Додаткове завдання №1: обгортання у декоратор CachingOrderStore (якщо не через фабрику)
+if (useCache && !useFactory)
 {
-    Console.WriteLine($"Файл не знайдено: {Path.GetFullPath(path)}");
-    return 1;
+    store = new CachingOrderStore(store);
 }
 
-string extension = Path.GetExtension(path).ToLowerInvariant();
-ImportResult result = extension switch
-{
-    ".csv" => OrderCsvImporter.Load(path),
-    ".json" => OrderJsonImporter.Load(path),
-    _ => throw new NotSupportedException($"Формат файлу '{extension}' не підтримується.")
-};
+var service = new OrderService(store);
 
-int accepted = result.Orders.Count + result.Customers.Count;
-int total = accepted + result.Errors.Count;
-Console.WriteLine($"--- ІМПОРТ (Лаб 3) ---");
-Console.WriteLine($"Статистика: усього {total} | прийнято {accepted} | помилок {result.Errors.Count}");
+Console.WriteLine($"Сховище: {store.GetType().Name}");
+if (useFile)
+{
+    Console.WriteLine($"Шлях до файлу: {dataPath}");
+}
 Console.WriteLine();
 
-// --- Додаткове завдання 1 ---
-Console.WriteLine("--- ДОДАТКОВЕ ЗАВДАННЯ 1: Фільтрація доменними інваріантами ---");
-var (validOrders, domainErrors) = DomainImporter.ProcessImport(result);
-Console.WriteLine($"Успішно створено доменних об'єктів: {validOrders.Count}");
-if (domainErrors.Count > 0)
+// =========================================================================
+// Основний сценарій (DoD п. 5: додати, змінити, знайти за id, показати список)
+// =========================================================================
+Console.WriteLine("--- 1. ОСНОВНИЙ СЦЕНАРІЙ (CreateOrder -> AddLine -> Confirm -> Find) ---");
+
+var created = service.CreateOrder("Замовлення з консолі (Лаб 5)");
+Console.WriteLine($"[Створено]   {created}");
+
+service.AddLine(created.Id, "Кабель UTP cat6", 25m, 50);
+service.AddLine(created.Id, "Конектор RJ-45", 5m, 20);
+service.Confirm(created.Id);
+
+var found = service.Find(created.Id);
+Console.WriteLine($"[Знайдено]   {found}");
+if (found is not null)
 {
-    Console.WriteLine("Помилки інваріантів під час мапінгу:");
-    foreach (var err in domainErrors)
+    foreach (var line in found.Lines)
     {
-        Console.WriteLine($"  {err}");
+        Console.WriteLine($"   -> {line.Name,-22} | {line.Quantity,3} шт. x {line.Price,8:F2} грн");
     }
 }
 Console.WriteLine();
 
-// ==========================================
-// ЛАБОРАТОРНА 4: Демонстрація доменної моделі
-// ==========================================
-Console.WriteLine("--- ДОМЕННА МОДЕЛЬ (Лаб 4) ---");
-Console.WriteLine("\n Сценарій 1: Успіх ");
-Order order = Order.Create("ORD-001", "Клієнт з магазину");
-Console.WriteLine(order);
-
-order.AddLine("Ноутбук", 25000m, 1);
-order.AddLine("Миша", 500m, 2);
-Console.WriteLine(order);
-
-order.Confirm();
-Console.WriteLine(order);
+// =========================================================================
+// Вивід усіх записів у сховищі
+// =========================================================================
+var allOrders = service.All();
+Console.WriteLine($"--- 2. СПИСОК УСІХ ЗАМОВЛЕНЬ (Усього в сховищі: {allOrders.Count}) ---");
+foreach (var o in allOrders)
+{
+    Console.WriteLine($" {o.Id,-10} | {o.Status,-9} | Позицій: {o.Lines.Count,2} | Сума: {o.Total,9:F2} грн | {o.Note}");
+}
 Console.WriteLine();
 
+// =========================================================================
+// Крок 6. Сценарій відмови (DoD п. 6: дубль id та відсутній id у try/catch)
+// =========================================================================
+Console.WriteLine("--- 3. СЦЕНАРІЇ ВІДМОВИ (Перехоплення винятків у Cli) ---");
 
-Console.WriteLine("\n Сценарій 2: Порушення інваріантів ");
-TryDo("Створення рядка з від'ємною ціною", () => OrderLine.Create("Клавіатура", -100m, 1));
-TryDo("Створення рядка з порожньою назвою", () => OrderLine.Create("", 100m, 1));
-TryDo("Створення замовлення без ID", () => Order.Create(""));
-TryDo("Підтвердження порожнього замовлення", () => 
+// 6.1. Спроба змінити замовлення з неіснуючим ID
+try
 {
-    var emptyOrder = Order.Create("ORD-002");
-    emptyOrder.Confirm();
-});
-TryDo("Додавання рядка до підтвердженого замовлення", () => 
+    service.AddLine("NON-EXISTENT-ID", "Тестовий товар", 100m, 1);
+}
+catch (InvalidOperationException ex)
 {
-    order.AddLine("Килимок", 300m, 1); // order - це підтверджене замовлення зі сценарію 1
-});
-
-Console.WriteLine("\nСтан об'єкта після спроб його зламати:");
-Console.WriteLine(order); // Має залишитись "Сума: 26000.00"
-
-// Локальна функція для обробки помилок
-static void TryDo(string title, Action action)
-{
-    try
-    {
-        action();
-        Console.WriteLine($"[!] {title}: виняток НЕ спрацював — інваріант відсутній!");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"[x] {title}: {ex.GetType().Name} - {ex.Message}");
-    }
+    Console.WriteLine($"[Помилка: відсутній ID] {ex.Message}");
 }
 
-return 0;
+// 6.2. Спроба створити замовлення з дублікатом ID
+try
+{
+    service.CreateOrder("Спроба дубля", customId: created.Id);
+}
+catch (InvalidOperationException ex)
+{
+    Console.WriteLine($"[Помилка: дубль ID]     {ex.Message}");
+}
+Console.WriteLine();
+
+// =========================================================================
+// Додаткове завдання №2: Пошук з предикатом Func<Order, bool>
+// =========================================================================
+Console.WriteLine("--- 4. ДОДАТКОВЕ ЗАВДАННЯ №2: Пошук через Func<Order, bool> ---");
+var confirmedBigOrders = service.Search(o => o.Status == OrderStatus.Confirmed && o.Total >= 10000m);
+Console.WriteLine($"Підтверджені замовлення на суму від 10 000 грн (знайдено {confirmedBigOrders.Count}):");
+foreach (var o in confirmedBigOrders)
+{
+    Console.WriteLine($" * {o.Id,-10} | Сума: {o.Total,9:F2} грн | {o.Note}");
+}
