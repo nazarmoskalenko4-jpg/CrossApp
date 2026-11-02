@@ -5,7 +5,8 @@ using Core.Dto;
 
 public static class OrderJsonImporter
 {
-    public static ImportResult Load(string path)
+    // Додано параметр Action<string>? onRowSkipped
+    public static ImportResult Load(string path, Action<string>? onRowSkipped = null)
     {
         var errors = new List<string>();
         try
@@ -19,7 +20,10 @@ public static class OrderJsonImporter
         }
         catch (Exception ex)
         {
-            errors.Add($"Помилка парсингу JSON: {ex.Message}");
+            string errorMessage = $"Помилка парсингу JSON: {ex.Message}";
+            errors.Add(errorMessage);
+            onRowSkipped?.Invoke(errorMessage); // Сповіщення про помилку імпорту
+            
             return new ImportResult(new List<OrderDto>(), new List<CustomerDto>(), errors);
         }
     }

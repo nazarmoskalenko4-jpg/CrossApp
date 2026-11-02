@@ -1,111 +1,75 @@
-﻿using Cli;
-using Core;
+﻿using Core;
+using Cli;
 using Core.Abstractions;
-using Core.Domain;
+using Core.Events;
 using Core.Services;
 using Core.Storage;
+using Core.Domain; // Якщо є SampleData
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
 // =========================================================================
-// Крок 5. Composition Root у Cli — єдине місце з конкретними класами
+// Налаштування логів та Sinks
 // =========================================================================
-bool useFile = args.Contains("--file");
-bool useFactory = args.Contains("--factory");
-bool useCache = args.Contains("--cache");
+var logPath = Path.Combine(AppContext.BaseDirectory, "logs", "app.log");
+Directory.CreateDirectory(Path.GetDirectoryName(logPath)!); // Створення каталогу для логів[cite: 4, 8, 9]
+
+// Ручний DI: передаємо Sinks у сервіс (Додаткове завдання №1)
+var sinks = new INotificationSink[] { new ConsoleSink(), new FileSink(logPath) };
 
 string dataPath = Path.Combine(AppContext.BaseDirectory, "data", "orders.json");
+IOrderStore store = new InMemoryOrderStore(SampleData.Orders()); // Для тесту (використовуй свою фабрику)
 
-// Базовий варіант за методичкою (тернарний оператор прямо в Program.cs)
-// Або виклик StoreFactory.Create(args, dataPath) для Додаткового завдання №3
-IOrderStore store = useFactory
-    ? StoreFactory.Create(args, dataPath)
-    : useFile
-        ? new FileOrderStore(dataPath)
-        : new InMemoryOrderStore(SampleData.Orders());
-
-// Додаткове завдання №1: обгортання у декоратор CachingOrderStore (якщо не через фабрику)
-if (useCache && !useFactory)
-{
-    store = new CachingOrderStore(store);
-}
-
-var service = new OrderService(store);
-
-Console.WriteLine($"Сховище: {store.GetType().Name}");
-if (useFile)
-{
-    Console.WriteLine($"Шлях до файлу: {dataPath}");
-}
-Console.WriteLine();
+var service = new OrderService(store, sinks); // Cli передає Sinks сервісу через конструктор
 
 // =========================================================================
-// Основний сценарій (DoD п. 5: додати, змінити, знайти за id, показати список)
+// Крок 3-4. Підписка на події
 // =========================================================================
-Console.WriteLine("--- 1. ОСНОВНИЙ СЦЕНАРІЙ (CreateOrder -> AddLine -> Confirm -> Find) ---");
 
-var created = service.CreateOrder("Замовлення з консолі (Лаб 5)");
-Console.WriteLine($"[Створено]   {created}");
+// Підписник 1: Локальний метод (записує в консоль і файл)[cite: 4]
+void OnOrderChanged(object? sender, OrderChangedEventArgs e)
+{
+    var line = $"{e.At:HH:mm:ss} {e.Kind,-14} {e.Id} | Рядків: {e.LinesCount,2} | Сума: {e.Total,9:F2} грн";
+    Console.WriteLine($"[ПОДІЯ-Event] {line}");
+    File.AppendAllText(logPath, line + Environment.NewLine);
+}
 
-service.AddLine(created.Id, "Кабель UTP cat6", 25m, 50);
-service.AddLine(created.Id, "Конектор RJ-45", 5m, 20);
+service.Changed += OnOrderChanged;
+
+// Підписник 2: Лямбда із замиканням для підрахунку подій[cite: 4, 6]
+int changes = 0;
+service.Changed += (_, _) => changes++;
+
+// =========================================================================
+// Сценарій тестування
+// =========================================================================
+Console.WriteLine("--- 1. ОСНОВНИЙ СЦЕНАРІЙ (Підняття подій та Sinks) ---");
+var created = service.CreateOrder("Замовлення з консолі");
+service.AddLine(created.Id, "Кабель UTP", 25m, 50);
 service.Confirm(created.Id);
 
-var found = service.Find(created.Id);
-Console.WriteLine($"[Знайдено]   {found}");
-if (found is not null)
-{
-    foreach (var line in found.Lines)
-    {
-        Console.WriteLine($"   -> {line.Name,-22} | {line.Quantity,3} шт. x {line.Price,8:F2} грн");
-    }
-}
-Console.WriteLine();
+Console.WriteLine($"\nПодій отримано (лямбда-лічильник): {changes}"); // Очікується 3
 
-// =========================================================================
-// Вивід усіх записів у сховищі
-// =========================================================================
-var allOrders = service.All();
-Console.WriteLine($"--- 2. СПИСОК УСІХ ЗАМОВЛЕНЬ (Усього в сховищі: {allOrders.Count}) ---");
-foreach (var o in allOrders)
-{
-    Console.WriteLine($" {o.Id,-10} | {o.Status,-9} | Позицій: {o.Lines.Count,2} | Сума: {o.Total,9:F2} грн | {o.Note}");
-}
-Console.WriteLine();
+// Крок 5: Відписка локального методу і перевірка тихих операцій[cite: 4, 8]
+Console.WriteLine("\n--- 2. ВІДПИСКА (service.Changed -= OnOrderChanged) ---");
+service.Changed -= OnOrderChanged;
 
-// =========================================================================
-// Крок 6. Сценарій відмови (DoD п. 6: дубль id та відсутній id у try/catch)
-// =========================================================================
-Console.WriteLine("--- 3. СЦЕНАРІЇ ВІДМОВИ (Перехоплення винятків у Cli) ---");
+var newOrder = service.CreateOrder("Тихе замовлення"); // OnOrderChanged не спрацює, але Sinks та лічильник - так
+Console.WriteLine($"Подій отримано після відписки: {changes}"); // Очікується 4
 
-// 6.1. Спроба змінити замовлення з неіснуючим ID
+// Крок 6: Сценарій відмови у try/catch[cite: 4]
+Console.WriteLine("\n--- 3. СЦЕНАРІЇ ВІДМОВИ (Подій не має бути) ---");
 try
 {
     service.AddLine("NON-EXISTENT-ID", "Тестовий товар", 100m, 1);
 }
 catch (InvalidOperationException ex)
 {
-    Console.WriteLine($"[Помилка: відсутній ID] {ex.Message}");
+    Console.WriteLine($"[Помилка] {ex.Message}");
 }
+// Лічильник не змінився, бо інваріант кинув виняток до OnChanged[cite: 3, 9]
+Console.WriteLine($"Подій отримано після помилки: {changes}"); // Залишається 4
 
-// 6.2. Спроба створити замовлення з дублікатом ID
-try
-{
-    service.CreateOrder("Спроба дубля", customId: created.Id);
-}
-catch (InvalidOperationException ex)
-{
-    Console.WriteLine($"[Помилка: дубль ID]     {ex.Message}");
-}
-Console.WriteLine();
-
-// =========================================================================
-// Додаткове завдання №2: Пошук з предикатом Func<Order, bool>
-// =========================================================================
-Console.WriteLine("--- 4. ДОДАТКОВЕ ЗАВДАННЯ №2: Пошук через Func<Order, bool> ---");
-var confirmedBigOrders = service.Search(o => o.Status == OrderStatus.Confirmed && o.Total >= 10000m);
-Console.WriteLine($"Підтверджені замовлення на суму від 10 000 грн (знайдено {confirmedBigOrders.Count}):");
-foreach (var o in confirmedBigOrders)
-{
-    Console.WriteLine($" * {o.Id,-10} | Сума: {o.Total,9:F2} грн | {o.Note}");
-}
+Console.WriteLine("\n--- 4. ПОШУК ЧЕРЕЗ Func (service.Search) ---");
+var bigOrders = service.Search(o => o.Total > 0);
+Console.WriteLine($"Знайдено непорожніх замовлень: {bigOrders.Count}");

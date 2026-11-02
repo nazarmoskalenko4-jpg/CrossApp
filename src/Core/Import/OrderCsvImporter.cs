@@ -7,7 +7,8 @@ public static class OrderCsvImporter
 {
     private const char Separator = ';';
 
-    public static ImportResult Load(string path)
+    // Додано параметр Action<string>? onRowSkipped
+    public static ImportResult Load(string path, Action<string>? onRowSkipped = null)
     {
         var orders = new List<OrderDto>();
         var customers = new List<CustomerDto>();
@@ -26,7 +27,11 @@ public static class OrderCsvImporter
             {
                 case ParseOrderOk o: orders.Add(o.Value); break;
                 case ParseCustomerOk c: customers.Add(c.Value); break;
-                case ParseFailed f: errors.Add($"рядок {number}: {f.Reason}"); break;
+                case ParseFailed f: 
+                    string errorMessage = $"рядок {number}: {f.Reason}";
+                    errors.Add(errorMessage);
+                    onRowSkipped?.Invoke(errorMessage); // Сповіщення про пропущений рядок
+                    break;
             }
         }
         return new ImportResult(orders, customers, errors);

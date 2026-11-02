@@ -1,27 +1,29 @@
-## Лабораторна робота 5: Сервісний шар, інтерфейси, два сховища, ручний DI
+## Лабораторна робота 6: Доменні події, делегати Action/Func, лямбди
 
-* **Домен:** Замовлення (`Order`, `OrderLine`, `OrderStatus`)
-* **Інтерфейс сховища:** `Core.Abstractions.IOrderStore`
-* **Реалізації сховища:**
-  * `Core.Storage.InMemoryOrderStore` — зберігання у пам'яті (`Dictionary<string, Order>`) з початковими даними з `SampleData.Orders()`.
-  * `Core.Storage.FileOrderStore` — збереження у JSON-файл (`data/orders.json`) через мапінг у `OrderDto` / `OrderLineDto`.
-  * `Core.Storage.CachingOrderStore` *(додаткове завдання)* — декоратор кешування поверх будь-якої реалізації `IOrderStore`.
-* **Сервіс:** `Core.Services.OrderService` (бізнес-операції `CreateOrder`, `AddLine`, `Confirm`, `All`, `Find`, `Search`).
-* **Фабрика:** `Cli.StoreFactory` *(додаткове завдання)* — створення та декорування сховища на основі аргументів командного рядка.
+* **Домен:** Замовлення (`Order`, `OrderLine`, `OrderStatus`).
+* **Події (Events):**
+  * Тип події та аргументи: `Core.Events.OrderChangeKind`, `Core.Events.OrderChangedEventArgs`.
+  * Оголошення події: `event EventHandler<OrderChangedEventArgs>? Changed` у класі `Core.Services.OrderService`.
+  * Підписники (у `Cli`): локальний метод (вивід у консоль та запис у файл `logs/app.log`) і лямбда-вираз із замиканням (лічильник).
+* **Делегати Action/Func:**
+  * `Func<Order, bool>`: використання предикату для пошуку/фільтрації в `OrderService.Search`.
+  * `Action<string>` *(додаткове завдання)*: передача сповіщень про помилки парсингу рядків в `OrderCsvImporter` та `OrderJsonImporter`.
+* **INotificationSink *(додаткове завдання)*:** Інтерфейс обробника сповіщень `Core.Abstractions.INotificationSink` та дві його реалізації у Cli (`ConsoleSink`, `FileSink`), які передаються в сервіс через конструктор (ручний DI).
+* **Сервіс:** `Core.Services.OrderService` (генерація подій відбувається строго після успішних змін стану сутності методами `CreateOrder`, `AddLine`, `Confirm`).
 
 ### Запуск
 
-# Режим у пам'яті (InMemoryOrderStore + SampleData, дані зникають після виходу)
+# Базовий режим (демонстрація роботи подій, лямбда-виразів, відписки та сценаріїв відмови)
 ```
 dotnet run --project src/Cli
 ```
 
-# Файловий режим (FileOrderStore, дані накопичуються у data/orders.json)
+# Файловий режим (збереження даних у data/orders.json + події)
 ```
 dotnet run --project src/Cli -- --file
 ```
 
-# Із декоратором кешування та фабрикою (додаткові завдання)
+# Із декоратором кешування та фабрикою
 ```
 dotnet run --project src/Cli -- --file --cache --factory
 ```
