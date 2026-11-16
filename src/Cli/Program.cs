@@ -1,75 +1,91 @@
 ﻿using Core;
-using Cli;
-using Core.Abstractions;
-using Core.Events;
+using Core.Reports;
 using Core.Services;
 using Core.Storage;
-using Core.Domain; // Якщо є SampleData
+using Core.Domain;
+using System.Diagnostics;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-// =========================================================================
-// Налаштування логів та Sinks
-// =========================================================================
-var logPath = Path.Combine(AppContext.BaseDirectory, "logs", "app.log");
-Directory.CreateDirectory(Path.GetDirectoryName(logPath)!); // Створення каталогу для логів[cite: 4, 8, 9]
+var store = new InMemoryOrderStore(SampleData.Orders());
+var service = new OrderService(store);
 
-// Ручний DI: передаємо Sinks у сервіс (Додаткове завдання №1)
-var sinks = new INotificationSink[] { new ConsoleSink(), new FileSink(logPath) };
+// Демо відкладеного виконання (Крок 3)
+var source = service.All().ToList();
+var query = source.Where(o => o.Total > 15000); // Запит побудовано, але не виконано
 
-string dataPath = Path.Combine(AppContext.BaseDirectory, "data", "orders.json");
-IOrderStore store = new InMemoryOrderStore(SampleData.Orders()); // Для тесту (використовуй свою фабрику)
+Console.WriteLine($"[ДЕМО] Дорогих замовлень до змін: {query.Count()}");
+var tmpOrder = Order.Create("TMP-001", "Тимчасове");
+tmpOrder.AddLine("Тест", 20000, 1);
+source.Add(tmpOrder);
+Console.WriteLine($"[ДЕМО] Дорогих замовлень після змін: {query.Count()}"); // Число інше
 
-var service = new OrderService(store, sinks); // Cli передає Sinks сервісу через конструктор
+var snapshot = query.ToList(); // Результат зафіксовано
+source.Remove(tmpOrder);
+Console.WriteLine($"[ДЕМО] У знімку лишилось: {snapshot.Count}\n"); // Не змінюється
 
-// =========================================================================
-// Крок 3-4. Підписка на події
-// =========================================================================
+// Маршрутизація команд (Крок 4)
+var items = service.All();
+var command = args.FirstOrDefault(a => !a.StartsWith("--")) ?? "report-top";
 
-// Підписник 1: Локальний метод (записує в консоль і файл)[cite: 4]
-void OnOrderChanged(object? sender, OrderChangedEventArgs e)
+switch (command)
 {
-    var line = $"{e.At:HH:mm:ss} {e.Kind,-14} {e.Id} | Рядків: {e.LinesCount,2} | Сума: {e.Total,9:F2} грн";
-    Console.WriteLine($"[ПОДІЯ-Event] {line}");
-    File.AppendAllText(logPath, line + Environment.NewLine);
+    case "report-top":
+        Console.WriteLine("--- ТОП-5 ЗАМОВЛЕНЬ ЗА СУМОЮ ---");
+        Print(ReportService.TopByTotal(items, 5));
+        break;
+    case "report-high":
+        Console.WriteLine("--- ЗАМОВЛЕННЯ ВІД 15000 ГРН ---");
+        Print(ReportService.ExpensiveOrders(items, 15000));
+        break;
+    case "report-groups":
+        Console.WriteLine("--- ГРУПУВАННЯ ЗА СТАТУСОМ ---");
+        foreach (var g in ReportService.ByStatus(items))
+            Console.WriteLine($" {g.Key,-10} позицій: {g.Count,3}    сумарно: {g.TotalAmount,9:F2} грн");
+        break;
+    case "report-sum":
+        Console.WriteLine("--- ПІДСУМКИ ---");
+        var t = ReportService.Totals(items);
+        Console.WriteLine($" позицій {t.Items}, всього {t.Total:F2} грн, середнє {t.Average:F2} грн, макс {t.Max:F2} грн");
+        break;
+    case "report-join":
+        Console.WriteLine("--- ЗВЕДЕНИЙ ЗВІТ (JOIN) ---");
+        foreach (var j in ReportService.JoinedOrderLines(items).Take(15)) // Виводимо 15 для компактності
+            Console.WriteLine($" {j.OrderId,-10} {j.ProductName,-25} {j.Price,8:F2} грн x {j.Quantity}");
+        break;
+    case "report-perf":
+        RunPerformanceTest();
+        break;
+    default:
+        Console.WriteLine("Доступні команди: report-top | report-high | report-groups | report-sum | report-join | report-perf");
+        break;
 }
 
-service.Changed += OnOrderChanged;
-
-// Підписник 2: Лямбда із замиканням для підрахунку подій[cite: 4, 6]
-int changes = 0;
-service.Changed += (_, _) => changes++;
-
-// =========================================================================
-// Сценарій тестування
-// =========================================================================
-Console.WriteLine("--- 1. ОСНОВНИЙ СЦЕНАРІЙ (Підняття подій та Sinks) ---");
-var created = service.CreateOrder("Замовлення з консолі");
-service.AddLine(created.Id, "Кабель UTP", 25m, 50);
-service.Confirm(created.Id);
-
-Console.WriteLine($"\nПодій отримано (лямбда-лічильник): {changes}"); // Очікується 3
-
-// Крок 5: Відписка локального методу і перевірка тихих операцій[cite: 4, 8]
-Console.WriteLine("\n--- 2. ВІДПИСКА (service.Changed -= OnOrderChanged) ---");
-service.Changed -= OnOrderChanged;
-
-var newOrder = service.CreateOrder("Тихе замовлення"); // OnOrderChanged не спрацює, але Sinks та лічильник - так
-Console.WriteLine($"Подій отримано після відписки: {changes}"); // Очікується 4
-
-// Крок 6: Сценарій відмови у try/catch[cite: 4]
-Console.WriteLine("\n--- 3. СЦЕНАРІЇ ВІДМОВИ (Подій не має бути) ---");
-try
+static void Print(IReadOnlyList<OrderReportLine> lines)
 {
-    service.AddLine("NON-EXISTENT-ID", "Тестовий товар", 100m, 1);
+    foreach (var l in lines)
+        Console.WriteLine($" {l.Id,-10} {l.Status,-10} {l.Total,9:F2} грн  | {l.Note}");
 }
-catch (InvalidOperationException ex)
-{
-    Console.WriteLine($"[Помилка] {ex.Message}");
-}
-// Лічильник не змінився, бо інваріант кинув виняток до OnChanged[cite: 3, 9]
-Console.WriteLine($"Подій отримано після помилки: {changes}"); // Залишається 4
 
-Console.WriteLine("\n--- 4. ПОШУК ЧЕРЕЗ Func (service.Search) ---");
-var bigOrders = service.Search(o => o.Total > 0);
-Console.WriteLine($"Знайдено непорожніх замовлень: {bigOrders.Count}");
+// Додаткове завдання 4: Вимірювання продуктивності
+static void RunPerformanceTest()
+{
+    Console.WriteLine("--- ТЕСТ ПРОДУКТИВНОСТІ (100 000 записів) ---");
+    var dummyOrders = new List<Order>(100000);
+    for (int i = 0; i < 100000; i++)
+    {
+        var o = Order.Create($"O-{i}");
+        o.AddLine("Item", 100, 1);
+        dummyOrders.Add(o);
+    }
+
+    var sw = Stopwatch.StartNew();
+    var res1 = dummyOrders.Where(x => x.Total > 50).OrderByDescending(x => x.Total).Take(10).ToList();
+    sw.Stop();
+    Console.WriteLine($"Без ToList в середині ланцюжка: {sw.ElapsedMilliseconds} мс");
+
+    sw.Restart();
+    var res2 = dummyOrders.Where(x => x.Total > 50).ToList().OrderByDescending(x => x.Total).Take(10).ToList();
+    sw.Stop();
+    Console.WriteLine($"З ToList в середині ланцюжка:   {sw.ElapsedMilliseconds} мс");
+}
